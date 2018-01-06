@@ -1,6 +1,7 @@
 package com.mahbuburrahman.weatherapp.activities;
 
 import android.Manifest;
+import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -39,7 +40,7 @@ import retrofit2.Response;
 import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener,MainFragment.OnSearchTypeFinishListener {
+public class MainActivity extends AppCompatActivity implements View.OnClickListener, MainFragment.OnSearchTypeFinishListener {
 
     private static final int PERMISSION_CODE = 100;
     private ViewPager pager;
@@ -48,7 +49,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private ImageButton leftBtn;
     private ImageButton rightBtn;
     private ImageButton homeBtn;
-    public static  String QueryString = null;
+    public static String QueryString = null;
     public static double latitude;
     public static double longitude;
     public static MainFragment mMainFragment = null;
@@ -71,7 +72,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private Retrofit retrofit;
 
     public static SharedPrefsData lastKnownData = null;
-    private int forecastCount = 7;
+    private ProgressDialog mProgressDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -84,6 +85,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         // TabLayout tabLayout = findViewById(R.id.tabs);
         //  tabLayout.setupWithViewPager(pager);
 
+        mProgressDialog = new ProgressDialog(this);
+        mProgressDialog.setMessage("Please Wait....");
+
         settingBtn = findViewById(R.id.settings_btn);
         //searchBtn = findViewById(R.id.search_btn);
         leftBtn = findViewById(R.id.left_nav);
@@ -91,14 +95,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         homeBtn = findViewById(R.id.homeBtn);
 
 
-        SectionPagerAdapter pagerAdapter = new SectionPagerAdapter(getSupportFragmentManager(),this);
+        SectionPagerAdapter pagerAdapter = new SectionPagerAdapter(getSupportFragmentManager(), this);
 
         pager = findViewById(R.id.pager);
         pager.setAdapter(pagerAdapter);
 
 
         settingBtn.setOnClickListener(this);
-       // searchBtn.setOnClickListener(this);
+        // searchBtn.setOnClickListener(this);
 
         // Images left navigation
         leftBtn.setOnClickListener(this);
@@ -112,16 +116,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         //TODO: get previous values
         lastKnownData = new SharedPrefsData(this);
 
-
+        checkPermission();
         getLatLon();
-
 
 
     }
 
 
     private void showErrorNotification(String s, final String url) {
-        if (view == null){
+        if (view == null) {
             view = findViewById(R.id.main_view);
         }
         Snackbar.make(view, s, Snackbar.LENGTH_INDEFINITE)
@@ -131,8 +134,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                         hasNetwork = NetworkHelper.hasNetwork(MainActivity.this);
                         //getLatLon();
                         if (hasNetwork) {
-                            getData(url);
-                        }else {
+
+                            if (latitude == 0 && longitude == 0){
+                                showErrorNotification("Please active the GPS...", url);
+                            }else {
+                                getData(url);
+                            }
+                        } else {
                             stopLocationUpdates();
                             showErrorNotification("No Network found", url);
                         }
@@ -142,12 +150,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     private void getData(final String url) {
 
+        mProgressDialog.show();
         //TODO: call API
         API_KEY = getResources().getString(R.string.api_key);
 
         hasNetwork = NetworkHelper.hasNetwork(this);
         if (!hasNetwork) {
             showErrorNotification("No network found", url);
+            mProgressDialog.dismiss();
             return;
         }
         if (retrofit == null) {
@@ -158,27 +168,28 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             mServices = retrofit.create(WeatherServices.class);
         }
 
-        String urlString = String.format(BASE_URL+url+API_KEY);
+        String urlString = String.format(BASE_URL + url + API_KEY);
 
-        Log.d("data", "getData: "+urlString);
+        Log.d("data", "getData: " + urlString);
 
         Call<WeatherResponse> call = mServices.getCurrentWeather(urlString);
         call.enqueue(new Callback<WeatherResponse>() {
             @Override
             public void onResponse(Call<WeatherResponse> call, Response<WeatherResponse> response) {
+                mProgressDialog.dismiss();
                 if (response.code() == 200) {
                     WeatherResponse currentWeather = response.body();
                     setWeatherDetails(currentWeather);
                     lastKnownData.saveData(currentWeather);
-                    Log.d("weather", "onResponse: "+currentWeather.getMain().getTemp());
-                }else{
-                    showErrorNotification("Something went wrong! "+response.code(), url);
+                    Log.d("weather", "onResponse: " + currentWeather.getMain().getTemp());
+                } else {
+                    showErrorNotification("Something went wrong! " + response.code(), url);
                 }
             }
 
             @Override
             public void onFailure(Call<WeatherResponse> call, Throwable t) {
-                showErrorNotification("Something went wrong!",url);
+                showErrorNotification("Something went wrong!", url);
             }
         });
     }
@@ -199,13 +210,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         int tab = 0;
         switch (id) {
             case R.id.homeBtn:
+                latitude = lastKnownData.getLastLocationLatitude();
+                longitude = lastKnownData.getLastLocationLongitude();
                 callApi();
                 break;
             case R.id.settings_btn:
                 Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
                 startActivity(intent);
                 break;
-                //TODO; left and right
+            //TODO; left and right
             case R.id.left_nav:
                 tab = pager.getCurrentItem();
                 if (tab > 0) {
@@ -231,24 +244,16 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     public void getLatLon() {
         //TODO: get location
-        //latitude = 23.709366;
-        //longitude = 90.431928;
         getLocation();
-
-
-
-        // getLocation();
-
     }
 
     private void callApi() {
-
-        String urlString = String.format("weather?lat=%f&lon=%f&appid=",latitude,longitude);
+        String urlString = String.format("weather?lat=%f&lon=%f&appid=", latitude, longitude);
         hasNetwork = NetworkHelper.hasNetwork(MainActivity.this);
         if (hasNetwork) {
             getData(urlString);
-        }else {
-            Log.d("OK", "getLatLon: "+hasNetwork);
+        } else {
+            Log.d("OK", "getLatLon: " + hasNetwork);
             stopLocationUpdates();
             showErrorNotification("No Network found", urlString);
         }
@@ -257,21 +262,16 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     public void onSearchTypeFinished(String city) {
         //TODO; search here
-        Log.d("search", "onSearchTypeFinished: "+city);
+        Log.d("search", "onSearchTypeFinished: " + city);
         stopLocationUpdates();
-        String urlString = String.format("weather?q=%s&appid=",city);
+        String urlString = String.format("weather?q=%s&appid=", city);
         getData(urlString);
-
-        SearchRecentSuggestions searchRecentSuggestions =
-                new SearchRecentSuggestions(this,RecentSearchSuggestionProvider.AUTHORITY,
-                        RecentSearchSuggestionProvider.MODE);
-
-        searchRecentSuggestions.saveRecentQuery(city, null);
 
     }
 
     private class SectionPagerAdapter extends FragmentPagerAdapter {
         Context mContext;
+
         public SectionPagerAdapter(FragmentManager fm, Context context) {
             super(fm);
             mContext = context;
@@ -313,19 +313,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             return null;
         }
     }
+
     private void checkPermission() {
-
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-    }
-
-    public void getLocation() {
-        mClient = LocationServices.getFusedLocationProviderClient(this);
-
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED
                 && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -337,33 +326,41 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             return;
 
         }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+    }
+
+    public void getLocation() {
+        mClient = LocationServices.getFusedLocationProviderClient(this);
+
 
         mLocationRequest = new LocationRequest()
                 .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
                 .setInterval(3000)
                 .setFastestInterval(1000);
 
-        mCallback = new LocationCallback(){
+        mCallback = new LocationCallback() {
             @Override
             public void onLocationResult(LocationResult locationResult) {
                 super.onLocationResult(locationResult);
 
-                for (Location location: locationResult.getLocations()) {
+                for (Location location : locationResult.getLocations()) {
                     if (location != null) {
                         if (latitude == 0 && longitude == 0 && location.getLatitude() != 0 && location.getLongitude() != 0) {
-                            callApi();
-                            mForeCastFragment.setForecast(latitude, longitude);
                             latitude = location.getLatitude();
                             longitude = location.getLongitude();
-                            Log.d("location", "onLocationResult: "+latitude+" "+longitude);
-                            //stopLocationUpdates();
+                            lastKnownData.saveLastLocation((float) latitude, (float) longitude);
+                            Log.d("location", "onLocationResult: " + latitude + " " + longitude);
+                            stopLocationUpdates();
                         }
 
-
-
-                        Log.d("location", "onLocationResult: "+latitude+" "+longitude);
-                       // return;
-                    }else{
+                        Log.d("location", "onLocationResult: " + latitude + " " + longitude);
+                        // return;
+                    } else {
                         Log.d("location", "onLocationResult: null");
                     }
                 }
@@ -371,6 +368,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             }
         };
 
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED
+                && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
         mClient.requestLocationUpdates(mLocationRequest, mCallback, null);
         Log.d("location", "getLocation: "+latitude +" "+longitude);
 
@@ -381,7 +384,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         super.onStop();
         Log.d("location", "onStop: called");
         stopLocationUpdates();
-
     }
 
     private void stopLocationUpdates() {
