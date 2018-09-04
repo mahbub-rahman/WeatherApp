@@ -7,7 +7,6 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.os.Bundle;
-import android.provider.SearchRecentSuggestions;
 import android.support.annotation.NonNull;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
@@ -32,7 +31,6 @@ import com.mahbuburrahman.weatherapp.fragments.MainFragment;
 import com.mahbuburrahman.weatherapp.model.WeatherResponse;
 import com.mahbuburrahman.weatherapp.services.WeatherServices;
 import com.mahbuburrahman.weatherapp.utils.NetworkHelper;
-import com.mahbuburrahman.weatherapp.utils.RecentSearchSuggestionProvider;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -71,7 +69,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private WeatherServices mServices;
     private Retrofit retrofit;
 
-    public static SharedPrefsData lastKnownData = null;
+    public static SharedPrefsData defaultDataStore = null;
     private ProgressDialog mProgressDialog;
 
     @Override
@@ -99,7 +97,28 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
         pager = findViewById(R.id.pager);
         pager.setAdapter(pagerAdapter);
+        pager.addOnPageChangeListener(new ViewPager.OnPageChangeListener() {
+            @Override
+            public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
 
+            }
+
+            @Override
+            public void onPageSelected(int position) {
+                if (position == 0) {
+                    leftBtn.setVisibility(View.INVISIBLE);
+                    rightBtn.setVisibility(View.VISIBLE);
+                }else if(position == 1){
+                    leftBtn.setVisibility(View.VISIBLE);
+                    rightBtn.setVisibility(View.INVISIBLE);
+                }
+            }
+
+            @Override
+            public void onPageScrollStateChanged(int state) {
+
+            }
+        });
 
         settingBtn.setOnClickListener(this);
         // searchBtn.setOnClickListener(this);
@@ -114,15 +133,23 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
 
         //TODO: get previous values
-        lastKnownData = new SharedPrefsData(this);
+        defaultDataStore = new SharedPrefsData(this);
 
+        //TODO: checkPermission
         checkPermission();
+        //get location latitude and longitude
         getLatLon();
-
 
     }
 
-
+    private void showErrorMessage(String s, int duration) {
+        if (view == null) {
+            view = findViewById(R.id.main_view);
+        }
+        Snackbar.make(view, s, Snackbar.LENGTH_INDEFINITE)
+                .setDuration(duration)
+                .show();
+    }
     private void showErrorNotification(String s, final String url) {
         if (view == null) {
             view = findViewById(R.id.main_view);
@@ -142,7 +169,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                             }
                         } else {
                             stopLocationUpdates();
-                            showErrorNotification("No Network found", url);
+                            showErrorNotification("No Network found!", url);
                         }
                     }
                 }).show();
@@ -156,7 +183,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
         hasNetwork = NetworkHelper.hasNetwork(this);
         if (!hasNetwork) {
-            showErrorNotification("No network found", url);
+            showErrorNotification("No network found!", url);
             mProgressDialog.dismiss();
             return;
         }
@@ -180,16 +207,17 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 if (response.code() == 200) {
                     WeatherResponse currentWeather = response.body();
                     setWeatherDetails(currentWeather);
-                    lastKnownData.saveData(currentWeather);
+                    defaultDataStore.saveData(currentWeather);
                     Log.d("weather", "onResponse: " + currentWeather.getMain().getTemp());
                 } else {
-                    showErrorNotification("Something went wrong! " + response.code(), url);
+                    showErrorNotification(response.message(), url);
                 }
             }
 
             @Override
             public void onFailure(Call<WeatherResponse> call, Throwable t) {
-                showErrorNotification("Something went wrong!", url);
+                mProgressDialog.dismiss();
+                showErrorMessage("Something went wrong! Please try again.", 3000);
             }
         });
     }
@@ -210,9 +238,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         int tab = 0;
         switch (id) {
             case R.id.homeBtn:
-                latitude = lastKnownData.getLastLocationLatitude();
-                longitude = lastKnownData.getLastLocationLongitude();
+                latitude = defaultDataStore.getLastLocationLatitude();
+                longitude = defaultDataStore.getLastLocationLongitude();
                 callApi();
+                pager.setCurrentItem(0);
                 break;
             case R.id.settings_btn:
                 Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
@@ -224,19 +253,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 if (tab > 0) {
                     tab--;
                     pager.setCurrentItem(tab);
-                    leftBtn.setVisibility(View.INVISIBLE);
-                    rightBtn.setVisibility(View.VISIBLE);
                 } else if (tab == 0) {
                     pager.setCurrentItem(tab);
-                    rightBtn.setVisibility(View.VISIBLE);
                 }
                 break;
             case R.id.right_nav:
                 tab = pager.getCurrentItem();
                 tab++;
                 pager.setCurrentItem(tab);
-                leftBtn.setVisibility(View.VISIBLE);
-                rightBtn.setVisibility(View.INVISIBLE);
                 break;
 
         }
@@ -255,7 +279,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         } else {
             Log.d("OK", "getLatLon: " + hasNetwork);
             stopLocationUpdates();
-            showErrorNotification("No Network found", urlString);
+            showErrorNotification("No Network found!", urlString);
         }
     }
 
@@ -353,7 +377,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                         if (latitude == 0 && longitude == 0 && location.getLatitude() != 0 && location.getLongitude() != 0) {
                             latitude = location.getLatitude();
                             longitude = location.getLongitude();
-                            lastKnownData.saveLastLocation((float) latitude, (float) longitude);
+                            defaultDataStore.saveLastLocation((float) latitude, (float) longitude);
                             Log.d("location", "onLocationResult: " + latitude + " " + longitude);
                             stopLocationUpdates();
                         }
@@ -374,9 +398,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 != PackageManager.PERMISSION_GRANTED) {
             return;
         }
+
         mClient.requestLocationUpdates(mLocationRequest, mCallback, null);
         Log.d("location", "getLocation: "+latitude +" "+longitude);
-
     }
 
     @Override
